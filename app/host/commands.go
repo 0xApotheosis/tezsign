@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -80,6 +81,16 @@ func cmdInit() *cli.Command {
 				return fmt.Errorf("init master: %w", err)
 			}
 			defer keychain.MemoryWipe(pass)
+
+			confirm, err := obtainPassword("Confirm master passphrase", false)
+			if err != nil {
+				return fmt.Errorf("init master: %w", err)
+			}
+			defer keychain.MemoryWipe(confirm)
+
+			if subtle.ConstantTimeCompare(pass, confirm) != 1 {
+				return fmt.Errorf("passphrases do not match")
+			}
 
 			ok, err := common.ReqInitMaster(b, c.Bool("deterministic"), pass)
 			if err != nil {
