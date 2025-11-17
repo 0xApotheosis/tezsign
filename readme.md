@@ -45,7 +45,7 @@
 
 After the initial connection, the device will configure itself and reboot. This process takes approximately 30 seconds.
 
-> **NOTE:** The Radxa Zero 3 currently has an issue where it may not boot correctly after the initial configuration. If this happens, simply unplug it and plug it back in once you see the LED diode has stopped blinking (this indicates the configuration is complete).
+> **NOTE:** The Radxa Zero 3 may encounter an issue where it fails to boot correctly after the initial configuration. If this occurs, wait until the LED diode stops blinking (indicating the configuration is complete), then unplug and reconnect the device. This issue appears to be related to certain SD cards, as some exhibit this behavior while others do not.
 
 ---
 

@@ -10,9 +10,14 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    # - board: "rpi4b"
-                    #   artifact_id: "raspberry_pi"
-                    #   armbian_release: "trixie"
+                    - board: "rpi4b"
+                      artifact_id: "raspberry_pi_dev"
+                      armbian_release: "trixie"
+                      tezsign_flavour: "dev"
+                    - board: "rpi4b"
+                      artifact_id: "raspberry_pi"
+                      armbian_release: "trixie"
+                      tezsign_flavour: "prod"
                     - board: "radxa-zero3"
                       artifact_id: "radxa_zero3_dev"
                       armbian_release: "trixie"
@@ -46,9 +51,14 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    # - image_id: "raspberry_pi"
-                    #   source_artifact: "raspberry_pi"
-                    #   create_binary_artifact: "true"
+                    - image_id: "raspberry_pi"
+                      source_artifact: "raspberry_pi"
+                      create_binary_artifact: "true"
+                      tezsign_flavour: "prod"
+                    - image_id: "raspberry_pi"
+                      source_artifact: "raspberry_pi_dev"
+                      create_binary_artifact: "true"
+                      tezsign_flavour: "dev"
                     - image_id: "radxa_zero3"
                       source_artifact: "radxa_zero3"
                       create_binary_artifact: "false"
