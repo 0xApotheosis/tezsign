@@ -18,7 +18,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const waitEndpointsTime = 30 * time.Second
+const (
+	waitEndpointsTime = 30 * time.Second
+
+	unlockAttemptWindow = 30 * time.Second
+	unlockAttemptLimit  = 5
+)
+
+var unlockLimiter = newAttemptLimiter(unlockAttemptLimit, unlockAttemptWindow)
 
 func main() {
 	logCfg := logging.NewConfigFromEnv()
@@ -159,6 +166,16 @@ func run(l *slog.Logger) error {
 			}
 			if len(pass) == 0 {
 				return marshalErr(11, "unlock: empty password is not allowed"), nil
+			}
+			if ok, wait := unlockLimiter.Allow(); !ok {
+				l.Warn("unlock throttled", slog.Duration("retry_in", wait))
+				msg := fmt.Sprintf(
+					"unlock throttled: retry in ~%s (max %d attempts per %s)",
+					wait.Round(time.Second),
+					unlockAttemptLimit,
+					unlockAttemptWindow,
+				)
+				return marshalErr(rpcUnlockThrottled, msg), nil
 			}
 
 			results := make([]*signer.PerKeyResult, 0, len(ids))

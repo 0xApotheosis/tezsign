@@ -1,5 +1,9 @@
+# FunctionFS Registrar
+
+If you’re cross-compiling from x86_64 → arm64 u need these:
+
 ```bash
-export GOOS=linux                                                                                          
+export GOOS=linux
 export GOARCH=arm64
 export CGO_ENABLED=0
 
