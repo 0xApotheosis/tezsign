@@ -11,6 +11,7 @@ import (
 	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 	"github.com/diskfs/go-diskfs/partition/mbr"
+	"github.com/diskfs/go-diskfs/partition/part"
 	"github.com/samber/lo"
 	"github.com/tez-capital/tezsign/tools/common"
 	"github.com/tez-capital/tezsign/tools/constants"
@@ -47,7 +48,13 @@ func resizeImage(imagePath string, flavour imageFlavour, logger *slog.Logger) (*
 		logger.Warn("Could not determine block size, falling back to 512.")
 	}
 	imgPartitions := partitionTable.GetPartitions()
-	rootPartition := imgPartitions[len(imgPartitions)-1]                // last partition is rootfs
+	var rootPartition part.Partition
+	if len(imgPartitions) > 1 {
+		rootPartition = imgPartitions[1] // second partition is rootfs
+	} else {
+		rootPartition = imgPartitions[0] // fallback to first partition if only one exists e.g. radxa with binman
+	}
+
 	rootFsPartitionStart := rootPartition.GetStart() / logicalBlockSize // 0 indexed
 	rootfsSizeInSectors := uint64(rootPartition.GetSize() / logicalBlockSize)
 	sectorsPerMB := uint64(1024 * 1024 / logicalBlockSize)
