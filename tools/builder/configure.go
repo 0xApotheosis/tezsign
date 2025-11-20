@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/disk"
 	"github.com/diskfs/go-diskfs/partition/part"
-	"github.com/samber/lo"
 	"github.com/tez-capital/tezsign/tools/common"
 	"github.com/tez-capital/tezsign/tools/constants"
 )
@@ -221,29 +219,35 @@ func patchBootPartition(img *disk.Disk, bootPartition part.Partition, flavour im
 	return nil
 }
 
-func patchAppPartition(img *disk.Disk, appPartition part.Partition, flavour imageFlavour, logger *slog.Logger) error {
-	index := lo.IndexOf(img.Table.GetPartitions(), appPartition) + 1 // 1 based index for FS
-	fs, err := img.GetFilesystem(index)
+func patchAppPartition(imgPath string, appPartition part.Partition, flavour imageFlavour, logger *slog.Logger) error {
+	appfs := path.Join(workDir, "appfs")
+
+	unmount, err := fuse2fs_mount(imgPath, appfs, int(appPartition.GetStart()), logger)
 	if err != nil {
-		return fmt.Errorf("failed to get filesystem for app partition: %w", err)
+		return err
 	}
-	defer fs.Close()
+	_ = unmount
+	defer unmount(true)
 
 	for src, dst := range AppInjectFiles {
 		logger.Info("Injecting file into app partition", slog.String("src", src), slog.String("dst", dst))
-		sourceFile, err := os.Open(src)
-		if err != nil {
-			return fmt.Errorf("failed to open source file %s: %w", src, err)
-		}
-		defer sourceFile.Close()
+		srcPath := src
+		dstPath := path.Join(appfs, dst)
 
-		dstFile, err := fs.OpenFile(dst, os.O_CREATE|os.O_RDWR)
-		if err != nil {
-			return fmt.Errorf("failed to open destination file %s: %w", dst, err)
+		if err := os.MkdirAll(path.Dir(dstPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", dstPath, err)
 		}
-		defer dstFile.Close()
+		if err := copyFile(srcPath, dstPath); err != nil {
+			return fmt.Errorf("failed to copy %s to %s: %w", srcPath, dstPath, err)
+		}
 
-		io.Copy(dstFile, sourceFile)
+		if err := os.Chown(dstPath, 1000, 1000); err != nil {
+			return fmt.Errorf("failed to chown %s: %w", dstPath, err)
+		}
+
+		if err := os.Chmod(dstPath, 0555); err != nil {
+			return fmt.Errorf("failed to chmod %s: %w", dstPath, err)
+		}
 	}
 
 	return nil
@@ -266,12 +270,21 @@ func patchRootPartition(imgPath string, rootPartition part.Partition, flavour im
 	rootfs := path.Join(workDir, "rootfs")
 	fstabPath := path.Join(rootfs, "etc", "fstab")
 
+	// create data dir and set ownership to tezsign user
+	dataMountPoint := path.Join(rootfs, "data", "tezsign")
+	if err := os.MkdirAll(dataMountPoint, 0755); err != nil {
+		return fmt.Errorf("failed to create data mount point %s: %w", dataMountPoint, err)
+	}
+	if err := os.Chown(dataMountPoint, 1000, 1000); err != nil {
+		return fmt.Errorf("failed to chown data mount point %s: %w", dataMountPoint, err)
+	}
+
 	err = PathFsTab(fstabPath, []mount{
-		{point: "tmpfs /tmp", options: []string{"tmpfs", "defaults,noatime,nosuid,size=100m"}},
+		{point: "tmpfs /tmp", options: []string{"tmpfs", "defaults,noatime,nosuid,size=50m"}},
 		{point: "tmpfs /var/log", options: []string{"tmpfs", "defaults,noatime,nosuid,size=50m"}},
 		{point: "tmpfs /var/tmp", options: []string{"tmpfs", "defaults,noatime,nosuid,size=30m"}},
-		{point: fmt.Sprintf("LABEL=%s /app", constants.AppPartitionLabel), options: []string{"vfat", "ro,exec,noatime,nofail,uid=1000,gid=1000,umask=0022   0   2"}},
-		{point: fmt.Sprintf("LABEL=%s /data", constants.DataPartitionLabel), options: []string{"vfat", "rw,noatime,nofail,uid=1000,gid=1000   0   2"}},
+		{point: fmt.Sprintf("LABEL=%s /app", constants.AppPartitionLabel), options: []string{"ext4", "ro,exec,noatime,nofail,data=journal  0   2"}},
+		{point: fmt.Sprintf("LABEL=%s /data", constants.DataPartitionLabel), options: []string{"ext4", "rw,noatime,nofail,data=journal   0   2"}},
 	})
 
 	bootMountPoint := path.Join(rootfs, "boot")
@@ -410,7 +423,7 @@ func ConfigureImage(workDir, imagePath string, flavour imageFlavour, logger *slo
 		return errors.Join(common.ErrFailedToConfigureImage, err)
 	}
 
-	if err := patchAppPartition(img, appPartition, flavour, logger); err != nil {
+	if err := patchAppPartition(imagePath, appPartition, flavour, logger); err != nil {
 		return errors.Join(common.ErrFailedToConfigureImage, err)
 	}
 

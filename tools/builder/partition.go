@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 
 	"github.com/diskfs/go-diskfs"
-	"github.com/diskfs/go-diskfs/disk"
-	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 	"github.com/diskfs/go-diskfs/partition/mbr"
 	"github.com/diskfs/go-diskfs/partition/part"
@@ -198,11 +197,21 @@ func formatPartitionTable(path string, flavour imageFlavour, logger *slog.Logger
 	dataPartitionIndex := len(partitions) - 1
 	logger.Info("Formatting partitions", slog.Int("app_partition_index", appPartitionIndex), slog.Int("data_partition_index", dataPartitionIndex))
 
-	if _, err := img.CreateFilesystem(disk.FilesystemSpec{Partition: appPartitionIndex + 1 /* 1 indexed */, FSType: filesystem.TypeFat32, VolumeLabel: constants.AppPartitionLabel}); err != nil {
+	appPartition := partitions[appPartitionIndex]
+	dataPartition := partitions[dataPartitionIndex]
+
+	appPartitionOffset := int64(appPartition.GetStart())
+	dataPartitionOffset := int64(dataPartition.GetStart())
+	appPartitionSize := int64(appPartition.GetSize())
+	dataPartitionSize := int64(dataPartition.GetSize())
+
+	// mkfs.ext4 -E offset=104857600,root_owner=1000:1000 -F disk.img 51200K
+	slog.Info("Formatting app and data partitions", slog.Int64("app_offset", appPartitionOffset), slog.Int64("app_size", appPartitionSize), slog.Int64("data_offset", dataPartitionOffset), slog.Int64("data_size", dataPartitionSize))
+	if err := exec.Command("mkfs.ext4", "-E", fmt.Sprintf("offset=%d", appPartitionOffset), "-F", path, fmt.Sprintf("%dK", appPartitionSize/1024), "-L", constants.AppPartitionLabel).Run(); err != nil {
 		return errors.Join(common.ErrFailedToFormatPartition, err)
 	}
-
-	if _, err := img.CreateFilesystem(disk.FilesystemSpec{Partition: dataPartitionIndex + 1 /* 1 indexed */, FSType: filesystem.TypeFat32, VolumeLabel: constants.DataPartitionLabel}); err != nil {
+	slog.Info("Formatting data partition", slog.Int64("data_offset", dataPartitionOffset), slog.Int64("data_size", dataPartitionSize))
+	if err := exec.Command("mkfs.ext4", "-E", fmt.Sprintf("offset=%d", dataPartitionOffset), "-F", path, fmt.Sprintf("%dK", dataPartitionSize/1024), "-L", constants.DataPartitionLabel).Run(); err != nil {
 		return errors.Join(common.ErrFailedToFormatPartition, err)
 	}
 

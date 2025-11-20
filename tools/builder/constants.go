@@ -40,6 +40,7 @@ var (
 	}
 
 	ArmbianRootFsCreateDirs = []string{
+		"/app",
 		"/data",
 	}
 
