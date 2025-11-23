@@ -30,19 +30,11 @@ runs:
     with:
       version: '0.15.2'
 
-  - name: ⚙️ Setup MSYS2 and Install Autotools & Make
-    uses: msys2/setup-msys2@v2
-    with:
-      msystem: MINGW64
-      update: true
-      install: >
-        mingw-w64-ucrt-x86_64-msys2-devel
-
   - name: Create build dir
     shell: bash
     run: mkdir -p build
 
-  - name: autogen libusb (linux)
+  - name: autogen libusb (windows)
     shell: bash
     env:
       CC: zig cc -target ${{ inputs.toolchain }}
@@ -50,7 +42,7 @@ runs:
     working-directory: ${{ github.workspace }}/libs/libusb
     run: ./autogen.sh --disable-udev --host=${{ inputs.libusb-host }}
 
-  - name: configure libusb (linux)
+  - name: configure libusb (windows)
     shell: bash
     env:
       CC: zig cc -target ${{ inputs.toolchain }}
@@ -64,7 +56,7 @@ runs:
     working-directory: ${{ github.workspace }}/libs/libusb
     run: make install
     
-  - name: Build host (linux)
+  - name: Build host (windows)
     shell: bash
     env:
       CC: zig cc -target ${{ inputs.toolchain }}
