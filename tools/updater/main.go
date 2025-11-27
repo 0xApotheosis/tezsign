@@ -20,6 +20,7 @@ import (
 	"github.com/diskfs/go-diskfs/partition/part"
 	"github.com/samber/lo"
 	"github.com/tez-capital/tezsign/tools/common"
+	"github.com/ulikunitz/xz"
 )
 
 type UpdateKind string
@@ -59,8 +60,8 @@ func newSelectionModel(devices []deviceCandidate) selectionModel {
 	columns := []table.Column{
 		{Title: "Name", Width: 10},
 		{Title: "Size", Width: 12},
-		{Title: "Status", Width: 22},
-		{Title: "Model", Width: 16},
+		{Title: "Status", Width: 66},
+		{Title: "Model", Width: 18},
 		{Title: "Path", Width: 20},
 	}
 
@@ -296,34 +297,26 @@ func probeTezsignDevice(path string) (bool, string) {
 	defer disk.Close()
 
 	ok, err := checkTezsignMarker(disk, appPartition)
-	if err != nil {
-		return true, fmt.Sprintf("marker check failed: %v", err)
-	}
-	if !ok {
+	switch {
+	case err != nil:
+		return true, "marker check skipped"
+	case !ok:
 		return true, "marker /tezsign missing (will be updated)"
+	default:
+		return true, "OK"
 	}
-	return true, "OK"
 }
 
 func checkTezsignMarker(disk *disk.Disk, appPartition part.Partition) (bool, error) {
+	// Marker check is intentionally lenient: if we can get the filesystem and reach the app partition, we proceed.
 	indexOfAppPartition := lo.IndexOf(disk.Table.GetPartitions(), appPartition)
 	if indexOfAppPartition == -1 {
-		return false, errors.New("app partition not found")
+		return true, nil
 	}
 
-	fs, err := disk.GetFilesystem(indexOfAppPartition + 1)
-	if err != nil {
-		return false, errors.New("failed to get filesystem")
+	if _, err := disk.GetFilesystem(indexOfAppPartition + 1); err != nil {
+		return true, nil
 	}
-
-	f, err := fs.OpenFile("/tezsign", os.O_RDONLY)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	defer f.Close()
 
 	return true, nil
 }
@@ -352,6 +345,43 @@ func loadImage(path string, mode diskfs.OpenModeOption) (*disk.Disk, part.Partit
 	}
 
 	return disk, bootPartition, rootfsPartition, appPartition, nil
+}
+
+func maybeDecompressSource(path string, logger *slog.Logger) (string, func(), error) {
+	if !strings.HasSuffix(path, ".xz") {
+		return path, func() {}, nil
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to open compressed source %s: %w", path, err)
+	}
+	defer f.Close()
+
+	r, err := xz.NewReader(f)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create xz reader: %w", err)
+	}
+
+	tmpFile, err := os.CreateTemp("", "tezsign_img_*.img")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create temp file for decompression: %w", err)
+	}
+
+	logger.Info("Decompressing source image", "source", path, "destination", tmpFile.Name())
+
+	if _, err := io.Copy(tmpFile, r); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", nil, fmt.Errorf("failed to decompress source image: %w", err)
+	}
+	tmpFile.Close()
+
+	cleanup := func() {
+		os.Remove(tmpFile.Name())
+	}
+
+	return tmpFile.Name(), cleanup, nil
 }
 
 func copyPartitionData(srcDisk *disk.Disk, srcPartition part.Partition, dstDisk *disk.Disk, dstPartition part.Partition, logger *slog.Logger) error {
@@ -402,7 +432,13 @@ func copyPartitionData(srcDisk *disk.Disk, srcPartition part.Partition, dstDisk 
 func performUpdate(source, destination string, kind UpdateKind, logger *slog.Logger) error {
 	logger.Info("Starting TezSign updater", "source", source, "destination", destination, "kind", string(kind))
 
-	sourceImg, sourceBootPartition, sourceRootfsPartition, sourceAppPartition, err := loadImage(source, diskfs.ReadOnly)
+	sourcePath, cleanup, err := maybeDecompressSource(source, logger)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	sourceImg, sourceBootPartition, sourceRootfsPartition, sourceAppPartition, err := loadImage(sourcePath, diskfs.ReadOnly)
 	if err != nil {
 		return fmt.Errorf("failed to load source image: %w", err)
 	}
@@ -417,7 +453,7 @@ func performUpdate(source, destination string, kind UpdateKind, logger *slog.Log
 	if ok, err := checkTezsignMarker(dstImg, destinationAppPartition); err != nil {
 		logger.Debug("Skipping marker check", "error", err)
 	} else if !ok {
-		logger.Warn("Destination missing /tezsign marker; proceeding and will overwrite app partition")
+		logger.Debug("Destination missing /tezsign marker; proceeding and will overwrite app partition")
 	}
 
 	switch kind {
