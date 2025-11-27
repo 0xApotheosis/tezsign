@@ -35,8 +35,6 @@ var (
 	dstMinPk = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_")
 	// DST for Proof of Possession
 	dstTezPop = []byte("BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_")
-
-	signature = new(Signature)
 )
 
 // MinPk (minimal public key size) type aliases
@@ -62,7 +60,7 @@ func GenerateRandomKey() (*blst.SecretKey, []byte, string) {
 //
 //go:inline
 func SignCompressed(secretKey *blst.SecretKey, msg []byte) ([]byte, string) {
-	sig := signature.Sign(secretKey, msg, dstMinPk)
+	sig := new(Signature).Sign(secretKey, msg, dstMinPk)
 	sigBytes := sig.Compress() // 96 bytes
 	return sigBytes, b58CheckEncode(pfxBLSignature, sigBytes)
 }
@@ -73,7 +71,7 @@ func SignPoPCompressed(secretKey *blst.SecretKey, pubkeyBytes []byte) ([]byte, s
 	if len(pubkeyBytes) != blst.BLST_P1_COMPRESS_BYTES {
 		return nil, "", errPubkeyNot48Bytes
 	}
-	sig := signature.Sign(secretKey, pubkeyBytes, dstTezPop)
+	sig := new(Signature).Sign(secretKey, pubkeyBytes, dstTezPop)
 	sigBytes := sig.Compress()
 	return sigBytes, b58CheckEncode(pfxBLSignature, sigBytes), nil
 }
