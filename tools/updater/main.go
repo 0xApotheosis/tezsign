@@ -19,9 +19,11 @@ import (
 	"github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/backend/file"
 	"github.com/diskfs/go-diskfs/disk"
+	"github.com/diskfs/go-diskfs/partition/gpt"
+	"github.com/diskfs/go-diskfs/partition/mbr"
 	"github.com/diskfs/go-diskfs/partition/part"
-	"github.com/samber/lo"
 	"github.com/tez-capital/tezsign/tools/common"
+	"github.com/tez-capital/tezsign/tools/constants"
 	"github.com/ulikunitz/xz"
 )
 
@@ -411,17 +413,34 @@ func probeTezsignDevice(path string) (bool, string) {
 }
 
 func checkTezsignMarker(disk *disk.Disk, appPartition part.Partition) (bool, error) {
-	// Marker check is intentionally lenient: if we can get the filesystem and reach the app partition, we proceed.
-	indexOfAppPartition := lo.IndexOf(disk.Table.GetPartitions(), appPartition)
-	if indexOfAppPartition == -1 {
-		return true, nil
+	table, err := disk.GetPartitionTable()
+	if err != nil {
+		return false, err
 	}
 
-	if _, err := disk.GetFilesystem(indexOfAppPartition + 1); err != nil {
-		return true, nil
+	switch t := table.(type) {
+	case *gpt.Table:
+		if len(t.Partitions) < 3 {
+			return false, nil
+		}
+		hasApp := false
+		hasData := false
+		for _, p := range t.Partitions {
+			name := strings.TrimSpace(p.Name)
+			if name == constants.AppPartitionLabel {
+				hasApp = true
+			}
+			if name == constants.DataPartitionLabel {
+				hasData = true
+			}
+		}
+		return hasApp && hasData, nil
+	case *mbr.Table:
+		// For MBR (Armbian Pi images), expect four partitions (boot/root/app/data).
+		return len(t.Partitions) >= 4, nil
+	default:
+		return false, nil
 	}
-
-	return true, nil
 }
 
 func loadImage(path string, mode diskfs.OpenModeOption) (*disk.Disk, part.Partition, part.Partition, part.Partition, error) {
