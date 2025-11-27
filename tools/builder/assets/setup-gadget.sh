@@ -5,7 +5,7 @@
 
 readonly VID="0x9997"
 readonly PID="0x0001"
-readonly APP_ID_FILE="/app/tezsign_id"
+readonly APP_ID_FILE="/data/tezsign_id"
 SERIAL="$(cat ${APP_ID_FILE} 2>/dev/null)"
 readonly MANUFACTURER="TzC"
 readonly PRODUCT="tezsign-gadget"
