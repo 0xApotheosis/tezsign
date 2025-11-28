@@ -424,64 +424,23 @@ func checkTezsignMarker(disk *disk.Disk, appPartition part.Partition) (bool, err
 	if err != nil {
 		return false, err
 	}
-
-	switch t := table.(type) {
-	case *gpt.Table:
-		if len(t.Partitions) < 3 {
-			return false, nil
-		}
-		hasApp := false
-		hasData := false
-		for idx, p := range t.Partitions {
-			name := strings.TrimSpace(p.Name)
-			if name == constants.AppPartitionLabel {
-				hasApp = true
+	hasApp := false
+	hasData := false
+	for idx, _ := range table.GetPartitions() {
+		fs, err := disk.GetFilesystem(idx + 1)
+		if err == nil {
+			label := strings.TrimSpace(fs.Label())
+			if label == constants.AppPartitionLabel {
+				if _, err := fs.OpenFile("/tezsign", os.O_RDONLY); err == nil {
+					hasApp = true
+				}
 			}
-			if name == constants.DataPartitionLabel {
+			if label == constants.DataPartitionLabel {
 				hasData = true
 			}
-			if hasApp && hasData {
-				continue
-			}
-			// Fallback to filesystem label if name is missing.
-			fs, err := disk.GetFilesystem(idx + 1)
-			if err == nil {
-				label := strings.TrimSpace(fs.Label())
-				if label == constants.AppPartitionLabel {
-					hasApp = true
-				}
-				if label == constants.DataPartitionLabel {
-					hasData = true
-				}
-			}
 		}
-		return hasApp && hasData, nil
-	case *mbr.Table:
-		// For MBR (Armbian Pi images), expect four partitions (boot/root/app/data) with non-zero size
-		// and rely on filesystem labels for app/data.
-		nonZero := 0
-		hasApp := false
-		hasData := false
-		for idx, p := range t.Partitions {
-			if p == nil || p.Size == 0 {
-				continue
-			}
-			nonZero++
-			fs, err := disk.GetFilesystem(idx + 1)
-			if err == nil {
-				label := strings.TrimSpace(fs.Label())
-				if label == constants.AppPartitionLabel {
-					hasApp = true
-				}
-				if label == constants.DataPartitionLabel {
-					hasData = true
-				}
-			}
-		}
-		return nonZero == 4 && hasApp && hasData, nil
-	default:
-		return false, nil
 	}
+	return hasApp && hasData, nil
 }
 
 func loadImage(path string, mode diskfs.OpenModeOption) (*disk.Disk, part.Partition, part.Partition, part.Partition, error) {
