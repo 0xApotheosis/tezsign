@@ -123,9 +123,6 @@ func tryReconnect(ctx context.Context, p common.ConnectParams) (*common.Session,
 func withSession(channel common.Channel) func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 	return func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 		logCfg := logging.NewConfigFromEnv()
-		if logCfg.File == "" {
-			logCfg.File = logging.DefaultFileInExecDir(logFileName)
-		}
 		if err := logging.EnsureDir(logCfg.File); err != nil {
 			panic("Could not create dir for path of configuration file!")
 		}

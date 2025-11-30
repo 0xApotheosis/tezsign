@@ -17,6 +17,7 @@ func NewSimpleLogResetWriter(filePath string, maxSize int) (*SimpleLogResetWrite
 	writer := &SimpleLogResetWriter{
 		FilePath: filePath,
 		MaxSize:  maxSize,
+		mu:       sync.Mutex{},
 	}
 
 	if err := writer.openFile(); err != nil {
@@ -39,13 +40,21 @@ func (w *SimpleLogResetWriter) Write(p []byte) (n int, err error) {
 	w.resetIfNeeded()
 	w.written += len(p)
 
+	if w.File == nil {
+		if err := w.openFile(); err != nil {
+			return 0, err
+		}
+	}
+
 	return w.File.Write(p)
 }
 
 func (w *SimpleLogResetWriter) resetIfNeeded() {
 	if w.written >= w.MaxSize {
 		w.written = 0
-		w.File.Close()
+		if w.File != nil {
+			w.File.Close()
+		}
 		w.openFile()
 	}
 }
