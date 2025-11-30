@@ -200,7 +200,7 @@ func (b *Broker) readLoop() <-chan struct{} {
 
 func (b *Broker) processStash() {
 	for {
-		id, payloadType, payload, err := b.stash.ReadPayload()
+		id, pt, payload, err := b.stash.ReadPayload()
 		switch {
 		case errors.Is(err, ErrNoPayloadFound):
 			fallthrough
@@ -213,50 +213,45 @@ func (b *Broker) processStash() {
 			continue // resync
 		}
 
-		switch payloadType {
-		case payloadTypeResponse:
-			b.logger.Debug("rx resp", slog.String("id", fmt.Sprintf("%x", id)), slog.Int("size", len(payload)))
+		go func(id [16]byte, payloadType payloadType, payload []byte) {
+			switch payloadType {
+			case payloadTypeResponse:
+				b.logger.Debug("rx resp", slog.String("id", fmt.Sprintf("%x", id)), slog.Int("size", len(payload)))
+				if ch, ok := b.waiters.LoadAndDelete(id); ok && ch != nil {
+					ch <- payload
+				}
+			case payloadTypeRequest:
+				b.logger.Debug("rx req", slog.String("id", fmt.Sprintf("%x", id)), slog.Int("size", len(payload)))
+				if processing := b.processingRequests.HasRequest(id); processing {
+					b.logger.Debug("duplicate request being processed; ignoring", slog.String("id", fmt.Sprintf("%x", id)))
+					return
+				}
+				b.processingRequests.Store(id, struct{}{})
 
-			if ch, ok := b.waiters.LoadAndDelete(id); ok && ch != nil {
-				ch <- payload
-			}
-		case payloadTypeRequest:
-			b.logger.Debug("rx req", slog.String("id", fmt.Sprintf("%x", id)), slog.Int("size", len(payload)))
-			if processing := b.processingRequests.HasRequest(id); processing {
-				b.logger.Debug("duplicate request being processed; ignoring", slog.String("id", fmt.Sprintf("%x", id)))
-				continue
-			}
-			b.processingRequests.Store(id, struct{}{})
-			go func(id [16]byte) {
 				// accept the request immediately
 				b.writeFrame(b.ctx, payloadTypeAcceptRequest, id, nil)
-			}(id)
 
-			if b.handler == nil {
-				continue
-			}
-
-			go func(id [16]byte, pl []byte) {
+				if b.handler == nil {
+					return
+				}
 				defer b.processingRequests.Delete(id)
-				resp, _ := b.handler(b.ctx, pl)
+				resp, _ := b.handler(b.ctx, payload)
 
 				b.logger.Debug("tx resp", slog.String("id", fmt.Sprintf("%x", id)), slog.Int("size", len(resp)))
 				_ = b.writeFrame(b.ctx, payloadTypeResponse, id, resp) // Put is deferred inside writeFrame if pooled
-			}(id, payload)
-		case payloadTypeAcceptRequest:
-			b.logger.Debug("rx accept", slog.String("id", fmt.Sprintf("%x", id)))
-			b.unconfirmedRequests.Delete(id)
-		case payloadTypeRetry:
-			b.logger.Debug("rx retry", slog.String("id", fmt.Sprintf("%x", id)))
-			allUnconfirmed := b.unconfirmedRequests.All()
-			for reqID, reqPayload := range allUnconfirmed {
-				go func(rid [16]byte) {
-					b.writeFrame(b.ctx, payloadTypeRequest, rid, reqPayload)
-				}(reqID)
+			case payloadTypeAcceptRequest:
+				b.logger.Debug("rx accept", slog.String("id", fmt.Sprintf("%x", id)))
+				b.unconfirmedRequests.Delete(id)
+			case payloadTypeRetry:
+				b.logger.Debug("rx retry", slog.String("id", fmt.Sprintf("%x", id)))
+				allUnconfirmed := b.unconfirmedRequests.All()
+				for reqID, reqPayload := range allUnconfirmed {
+					b.writeFrame(b.ctx, payloadTypeRequest, reqID, reqPayload)
+				}
+			default:
+				b.logger.Warn("unknown type; resync", slog.String("type", fmt.Sprintf("%02x", payloadType)), slog.String("id", fmt.Sprintf("%x", id)))
 			}
-		default:
-			b.logger.Warn("unknown type; resync", slog.String("type", fmt.Sprintf("%02x", payloadType)), slog.String("id", fmt.Sprintf("%x", id)))
-		}
+		}(id, pt, payload)
 	}
 }
 
