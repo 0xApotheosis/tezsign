@@ -19,11 +19,7 @@ type Config struct {
 	Format       string     // "text" or "json" (default "text")
 	File         string     // path to log file; empty = no file
 	AlsoStderr   bool       // default true
-	NoColor      bool       // pretty text: no colors
 	MaxSizeMB    int        // default 50
-	MaxBackups   int        // default 3
-	MaxAgeDays   int        // default 14
-	Compress     bool       // default true
 	SetAsDefault bool       // set slog.SetDefault
 }
 
@@ -32,8 +28,7 @@ func DefaultConfig() Config {
 		Level:      slog.LevelInfo,
 		Format:     "text",
 		AlsoStderr: true,
-		MaxSizeMB:  50, MaxBackups: 3, MaxAgeDays: 14,
-		Compress: true,
+		MaxSizeMB:  50,
 	}
 }
 
@@ -61,14 +56,9 @@ func NewConfigFromEnv() Config {
 		cfg.Format = "text"
 	}
 
-	// File + rotation
 	cfg.File = strings.TrimSpace(os.Getenv("LOG_FILE"))
 	cfg.AlsoStderr = envBool(os.Getenv("LOG_STDERR"), true)
-	cfg.NoColor = envBool(os.Getenv("LOG_NO_COLOR"), false)
 	cfg.MaxSizeMB = envInt(os.Getenv("LOG_MAX_SIZE_MB"), 5)
-	cfg.MaxBackups = envInt(os.Getenv("LOG_MAX_BACKUPS"), 0)
-	cfg.MaxAgeDays = envInt(os.Getenv("LOG_MAX_AGE_DAYS"), 14)
-	cfg.Compress = envBool(os.Getenv("LOG_COMPRESS"), false)
 
 	cfg.SetAsDefault = true
 	return cfg
@@ -173,7 +163,7 @@ func EnsureDir(path string) error {
 	return os.MkdirAll(dir, 0o755)
 }
 
-// New builds a slog.Logger using cfg; returns the logger and the (optional) rotating writer.
+// New builds a slog.Logger using cfg; returns the logger and the truncating simple log writer.
 func New(cfg Config) (*slog.Logger, io.Writer) {
 	handlers := make([]slog.Handler, 0, 2)
 
