@@ -12,12 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/backend/file"
 	"github.com/diskfs/go-diskfs/disk"
@@ -38,286 +34,11 @@ const (
 	UpdateKindAppOnly UpdateKind = "app"
 )
 
-type selectionStage int
-
-const (
-	stageDevice selectionStage = iota
-	stageKind
-)
-
-type deviceCandidate struct {
-	Name      string
-	Path      string
-	SizeBytes uint64
-	Model     string
-	Status    string
-	Valid     bool
-}
-
-type selectionModel struct {
-	stage          selectionStage
-	devices        []deviceCandidate
-	table          table.Model
-	kindCursor     int
-	selectedDevice *deviceCandidate
-	selectedKind   UpdateKind
-	err            error
-}
-
-type decompressModel struct {
-	source string
-	target string
-	total  int64
-	reader *countingReader
-	cancel func()
-	err    error
-	done   bool
-}
-
-type tickMsg time.Time
-
-type finishMsg struct {
-	err error
-}
-
-func newSelectionModel(devices []deviceCandidate) selectionModel {
-	columns := []table.Column{
-		{Title: "Name", Width: 10},
-		{Title: "Size", Width: 12},
-		{Title: "Status", Width: 66},
-		{Title: "Model", Width: 18},
-		{Title: "Path", Width: 20},
-	}
-
-	rows := make([]table.Row, 0, len(devices))
-	for _, dev := range devices {
-		rows = append(rows, table.Row{
-			dev.Name,
-			byteCountToHumanReadable(int64(dev.SizeBytes)),
-			dev.Status,
-			dev.Model,
-			dev.Path,
-		})
-	}
-
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(10),
-	)
-	t.SetStyles(newTableStyles())
-
-	return selectionModel{
-		stage:        stageDevice,
-		devices:      devices,
-		table:        t,
-		selectedKind: UpdateKindFull,
-	}
-}
-
-func newTableStyles() table.Styles {
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(true)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	return s
-}
-
-func (m selectionModel) Init() tea.Cmd {
-	return nil
-}
-
-func newDecompressModel(source, target string, total int64, reader *countingReader, cancel func()) decompressModel {
-	return decompressModel{
-		source: source,
-		target: target,
-		total:  total,
-		reader: reader,
-		cancel: cancel,
-	}
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-func (m decompressModel) Init() tea.Cmd {
-	return tickCmd()
-}
-
-func (m decompressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tickMsg:
-		if m.done {
-			return m, nil
-		}
-		return m, tickCmd()
-	case finishMsg:
-		m.done = true
-		m.err = msg.err
-		return m, tea.Quit
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
-			if !m.done && m.cancel != nil {
-				m.cancel()
-			}
-			m.done = true
-			m.err = errors.New("decompression cancelled")
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func renderProgressBar(pct float64, width int) string {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
-	fill := int((pct / 100) * float64(width))
-	if fill > width {
-		fill = width
-	}
-	return fmt.Sprintf("[%s%s] %5.1f%%", strings.Repeat("█", fill), strings.Repeat("░", width-fill), pct)
-}
-
-func (m decompressModel) View() string {
-	read := m.reader.BytesRead()
-	var pct float64 = -1
-	if m.total > 0 {
-		pct = float64(read) / float64(m.total) * 100
-	}
-
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("%s → %s\n\n", m.source, m.target))
-	if pct >= 0 {
-		builder.WriteString(renderProgressBar(pct, 40))
-		builder.WriteString(fmt.Sprintf("  %s / %s\n", byteCountToHumanReadable(read), byteCountToHumanReadable(m.total)))
-	} else {
-		builder.WriteString(fmt.Sprintf("%s read\n", byteCountToHumanReadable(read)))
-	}
-
-	if m.done {
-		if m.err != nil {
-			builder.WriteString(fmt.Sprintf("\nError: %v\n", m.err))
-		} else {
-			builder.WriteString("\nDone.\n")
-		}
-	} else {
-		builder.WriteString("\nPress q to cancel.")
-	}
-	return builder.String()
-}
-
-func (m selectionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
-			m.err = errors.New("update cancelled")
-			return m, tea.Quit
-		}
-
-		switch m.stage {
-		case stageDevice:
-			switch msg.String() {
-			case "up", "k":
-				m.table.MoveUp(1)
-			case "down", "j":
-				m.table.MoveDown(1)
-			case "enter":
-				if len(m.devices) == 0 {
-					m.err = errors.New("no TezSign SD cards detected")
-					return m, tea.Quit
-				}
-				cursor := m.table.Cursor()
-				if cursor < 0 || cursor >= len(m.devices) {
-					m.err = errors.New("invalid selection")
-					return m, tea.Quit
-				}
-				if !m.devices[cursor].Valid {
-					m.err = errors.New("selected device is not a valid TezSign SD card")
-					return m, tea.Quit
-				}
-				m.selectedDevice = &m.devices[cursor]
-				m.stage = stageKind
-			}
-		case stageKind:
-			switch msg.String() {
-			case "up", "k":
-				if m.kindCursor > 0 {
-					m.kindCursor--
-				}
-			case "down", "j":
-				if m.kindCursor < 1 {
-					m.kindCursor++
-				}
-			case "enter":
-				options := []UpdateKind{UpdateKindFull, UpdateKindAppOnly}
-				m.selectedKind = options[m.kindCursor]
-				return m, tea.Quit
-			}
-		}
-	case tea.WindowSizeMsg:
-		width := msg.Width - 4
-		if width < 20 {
-			width = 20
-		}
-		m.table.SetWidth(width)
-	}
-
-	return m, nil
-}
-
-func (m selectionModel) View() string {
-	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n", m.err)
-	}
-
-	switch m.stage {
-	case stageDevice:
-		if len(m.devices) == 0 {
-			return "No TezSign SD cards detected. Press q to exit."
-		}
-		return fmt.Sprintf(
-			"Select a device (↑/↓ to navigate, enter to choose)\n\n%s\n\nPress enter to continue or q to cancel.",
-			m.table.View(),
-		)
-	case stageKind:
-		options := []struct {
-			kind  UpdateKind
-			title string
-		}{
-			{UpdateKindFull, "Full (boot, rootfs and app)"},
-			{UpdateKindAppOnly, "TezSign app only"},
-		}
-
-		var sb strings.Builder
-		sb.WriteString("Select update kind (↑/↓ to navigate, enter to start)\n\n")
-		for i, option := range options {
-			cursor := "  "
-			if i == m.kindCursor {
-				cursor = "> "
-			}
-			sb.WriteString(fmt.Sprintf("%s%s\n", cursor, option.title))
-		}
-		sb.WriteString("\nPress q to cancel.")
-		return sb.String()
-	default:
-		return ""
-	}
+var validFlavours = map[string]bool{
+	"raspberry_pi":     true,
+	"raspberry_pi.dev": true,
+	"radxa_zero3":      true,
+	"radxa_zero3.dev":  true,
 }
 
 func runSelection(devices []deviceCandidate) (deviceCandidate, UpdateKind, error) {
@@ -510,21 +231,6 @@ func filesystemForPartition(d *disk.Disk, p part.Partition) (filesystem.FileSyst
 	return nil, errors.New("partition not found for filesystem lookup")
 }
 
-type countingReader struct {
-	r    io.Reader
-	read int64
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	atomic.AddInt64(&c.read, int64(n))
-	return n, err
-}
-
-func (c *countingReader) BytesRead() int64 {
-	return atomic.LoadInt64(&c.read)
-}
-
 func maybeDecompressSource(path string, logger *slog.Logger) (string, func(), error) {
 	if !strings.HasSuffix(path, ".xz") {
 		return path, func() {}, nil
@@ -557,7 +263,8 @@ func maybeDecompressSource(path string, logger *slog.Logger) (string, func(), er
 		tmpFile.Close()
 	}
 
-	p := tea.NewProgram(newDecompressModel(fmt.Sprintf("Decompress %s", filepath.Base(path)), tmpFile.Name(), totalBytes, cr, cancel))
+	title := fmt.Sprintf("Decompress %s → %s", filepath.Base(path), filepath.Base(tmpFile.Name()))
+	p := tea.NewProgram(newProgressModel(title, totalBytes, cr, cancel))
 
 	go func() {
 		_, copyErr := io.Copy(tmpFile, r)
@@ -572,7 +279,7 @@ func maybeDecompressSource(path string, logger *slog.Logger) (string, func(), er
 		return "", nil, fmt.Errorf("failed to render decompress progress: %w", progErr)
 	}
 
-	res, ok := model.(decompressModel)
+	res, ok := model.(progressModel)
 	if !ok {
 		os.Remove(tmpFile.Name())
 		return "", nil, errors.New("unexpected model type after decompression")
@@ -614,7 +321,8 @@ func downloadWithProgress(url string) (string, func(), error) {
 		os.Remove(tmpFile.Name())
 	}
 
-	p := tea.NewProgram(newDecompressModel(fmt.Sprintf("Download %s", filepath.Base(url)), tmpFile.Name(), total, cr, cancel))
+	title := fmt.Sprintf("Download %s → %s", filepath.Base(url), filepath.Base(tmpFile.Name()))
+	p := tea.NewProgram(newProgressModel(title, total, cr, cancel))
 
 	go func() {
 		_, copyErr := io.Copy(tmpFile, cr)
@@ -629,7 +337,7 @@ func downloadWithProgress(url string) (string, func(), error) {
 		return "", nil, fmt.Errorf("failed to render download progress: %w", progErr)
 	}
 
-	res, ok := model.(decompressModel)
+	res, ok := model.(progressModel)
 	if !ok {
 		cancel()
 		return "", nil, errors.New("unexpected model type after download")
@@ -645,13 +353,6 @@ func downloadWithProgress(url string) (string, func(), error) {
 	}
 
 	return tmpFile.Name(), cleanup, nil
-}
-
-var validFlavours = map[string]bool{
-	"raspberry_pi":     true,
-	"raspberry_pi.dev": true,
-	"radxa_zero3":      true,
-	"radxa_zero3.dev":  true,
 }
 
 func deviceFlavour(devicePath string) (string, error) {
@@ -740,48 +441,63 @@ func ensureImageFlavour(fs filesystem.FileSystem, fallback string, logger *slog.
 	return fallback, nil
 }
 
-func copyPartitionData(srcDisk *disk.Disk, srcPartition part.Partition, dstDisk *disk.Disk, dstPartition part.Partition, logger *slog.Logger) error {
+func copyPartitionData(srcDisk *disk.Disk, srcPartition part.Partition, dstDisk *disk.Disk, dstPartition part.Partition, description string, logger *slog.Logger) error {
 	pr, pw := io.Pipe()
 	writableDst, err := dstDisk.Backend.Writable()
 	if err != nil {
 		return errors.New("failed to get writable backend for destination disk")
 	}
 
-	progressLogger := NewProgressLogger(pw, logger)
+	totalBytes := srcPartition.GetSize()
+	counter := &countingWriter{w: pw}
+	progress := tea.NewProgram(newProgressModel(fmt.Sprintf("Copying %s", description), totalBytes, counter, nil))
 
-	var wg sync.WaitGroup
-	var readErr, writeErr error
-	var readBytes int64
+	errCh := make(chan error, 1)
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		defer pw.Close() // Close the writer side of the pipe when done
+		var wg sync.WaitGroup
+		var readErr, writeErr error
+		var readBytes int64
 
-		// ReadContents(backend, out io.Writer) streams data FROM the partition TO the provided writer (pw).
-		readBytes, readErr = srcPartition.ReadContents(srcDisk.Backend, progressLogger)
-		if readErr != nil {
-			logger.Error("Failed to read contents from source partition", "error", readErr)
-			return
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer pw.Close()
+
+			readBytes, readErr = srcPartition.ReadContents(srcDisk.Backend, counter)
+			if readErr != nil {
+				logger.Error("Failed to read contents from source partition", "error", readErr)
+			}
+		}()
+
+		writtenBytes, writeErr := dstPartition.WriteContents(writableDst, pr)
+		if writeErr != nil {
+			logger.Error("Failed to write contents to destination partition", "error", writeErr)
 		}
+		pr.Close()
+		wg.Wait()
+
+		var copyErr error
+		if readErr != nil {
+			copyErr = errors.New("error occurred while reading from source partition: " + readErr.Error())
+		} else if writeErr != nil {
+			copyErr = errors.New("error occurred while writing to destination partition: " + writeErr.Error())
+		} else if uint64(readBytes) != writtenBytes {
+			copyErr = errors.New("mismatch in bytes read and written")
+		}
+
+		progress.Send(finishMsg{err: copyErr})
+		errCh <- copyErr
 	}()
 
-	writtenBytes, writeErr := dstPartition.WriteContents(writableDst, pr)
-	if writeErr != nil {
-		logger.Error("Failed to write contents to destination partition", "error", writeErr)
+	if _, progErr := progress.Run(); progErr != nil {
+		return fmt.Errorf("failed to render copy progress: %w", progErr)
 	}
-	pr.Close()
-	wg.Wait()
 
-	if readErr != nil {
-		return errors.New("error occurred while reading from source partition: " + readErr.Error())
+	if copyErr := <-errCh; copyErr != nil {
+		return copyErr
 	}
-	if writeErr != nil {
-		return errors.New("error occurred while writing to destination partition: " + writeErr.Error())
-	}
-	if uint64(readBytes) != writtenBytes {
-		return errors.New("mismatch in bytes read and written")
-	}
+
 	return nil
 }
 
@@ -831,18 +547,18 @@ func performUpdate(source, destination string, kind UpdateKind, logger *slog.Log
 
 		if sourceBootPartition != nil {
 			logger.Info("Updating boot partition...")
-			if err = copyPartitionData(sourceImg, sourceBootPartition, dstImg, destinationBootPartition, logger); err != nil {
+			if err = copyPartitionData(sourceImg, sourceBootPartition, dstImg, destinationBootPartition, "boot partition", logger); err != nil {
 				return fmt.Errorf("failed to update boot partition: %w", err)
 			}
 		}
 
 		logger.Info("Updating rootfs partition...")
-		if err = copyPartitionData(sourceImg, sourceRootfsPartition, dstImg, destinationRootfsPartition, logger); err != nil {
+		if err = copyPartitionData(sourceImg, sourceRootfsPartition, dstImg, destinationRootfsPartition, "rootfs partition", logger); err != nil {
 			return fmt.Errorf("failed to update rootfs partition: %w", err)
 		}
 
 		logger.Info("Updating app partition...")
-		if err = copyPartitionData(sourceImg, sourceAppPartition, dstImg, destinationAppPartition, logger); err != nil {
+		if err = copyPartitionData(sourceImg, sourceAppPartition, dstImg, destinationAppPartition, "app partition", logger); err != nil {
 			return fmt.Errorf("failed to update app partition: %w", err)
 		}
 	case UpdateKindAppOnly:
@@ -896,39 +612,9 @@ func performAppBinaryUpdate(binaryPath, destination string, logger *slog.Logger)
 	}
 	defer in.Close()
 
-	writeBinary := func() error {
-		out, err := fs.OpenFile("/tezsign", os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
-		if err != nil {
-			return fmt.Errorf("failed to open /tezsign on destination: %w", err)
-		}
-
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return fmt.Errorf("failed to write gadget binary: %w", err)
-		}
-		out.Close()
-
-		// Best-effort permission set; ignore failures on read-only fs.
-		_ = fs.Chmod("/tezsign", 0755)
-
-		// Verify we can read back the binary (basic assurance write succeeded).
-		verify, err := fs.OpenFile("/tezsign", os.O_RDONLY)
-		if err != nil {
-			return fmt.Errorf("failed to verify /tezsign after write: %w", err)
-		}
-		if _, err := io.Copy(io.Discard, verify); err != nil {
-			verify.Close()
-			return fmt.Errorf("failed to read back /tezsign after write: %w", err)
-		}
-		verify.Close()
-		return nil
-	}
-
-	if err := writeBinary(); err != nil {
-		logger.Warn("Direct write via go-diskfs failed, retrying via mount", "error", err)
-		if err := writeAppViaMount(binaryPath, flavour, logger); err != nil {
-			return fmt.Errorf("failed to write gadget binary (fallback mount): %w", err)
-		}
+	// Always use mount-based write; direct go-diskfs writes are unreliable on RO-marked filesystems.
+	if err := writeAppViaMount(binaryPath, flavour, logger); err != nil {
+		return fmt.Errorf("failed to write gadget binary via mount: %w", err)
 	}
 
 	return nil
@@ -1073,12 +759,13 @@ func main() {
 		}
 	}
 
-	if kind == UpdateKindFull {
+	switch kind {
+	case UpdateKindFull:
 		if _, err := os.Stat(source); err != nil {
 			logger.Error("Invalid source image", "error", err)
 			os.Exit(1)
 		}
-	} else if kind == UpdateKindAppOnly {
+	case UpdateKindAppOnly:
 		if _, err := os.Stat(appBinary); err != nil {
 			logger.Error("Invalid gadget binary", "error", err)
 			os.Exit(1)
