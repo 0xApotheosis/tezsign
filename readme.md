@@ -6,7 +6,7 @@
 | Feature | **TezSign** | **Russignol** | **BLS Signer** |
 | :--- | :--- | :--- | :--- |
 | **Supported Devices** | 🥧 RPi Zero 2W, RPi4, Radxa Zero 3 | 🥧 RPi Zero 2W w/ PaperInk | 🥧 RPi Zero 2W w/ PaperInk |
-| **Hardware Start Cost** | **< $20 USD** | **~$50 USD** * | **~$50 USD** * |
+| **Hardware Start Cost** | **< $20 USD** * | **~$50 USD** * | **~$50 USD** * |
 | **Tezbake Integration** | Full | Partial | Partial |
 | **Avg Signature Time** | ~10ms | ~5ms | ~30ms |
 | **Security** | 🔒 **High** (Custom Wire Proto) | 🔒 **High** (Custom Image) | 🛡️ Medium |
@@ -20,6 +20,8 @@
 | **Installation Size** | 💾 ~200MB | 📦 7MB | 🐘 1.95GB |
 | **License** | 📜 SSPL | ⛔ UNLICENSED | 📜 MIT |
 
+> **Note:** The comparison table above is accurate as of December 2, 2025. 
+> **Disclaimer:** The values for other signers in the comparison table are provided by their respective providers or users and have not been independently verified by us. If you notice any inaccuracies, please [let us know](https://github.com/tez-capital/tezsign/issues).
 > **\*** * Shipping & taxes may apply.
 >
 > **Note on Power Loss:** "Yes" indicates the device is hardened against corruption if power is suddenly cut.
