@@ -8,7 +8,7 @@
 | **Supported Devices** | 🥧 RPi Zero 2W, RPi4, Radxa Zero 3 | 🥧 RPi Zero 2W w/ PaperInk | 🥧 RPi Zero 2W w/ PaperInk |
 | **Hardware Start Cost** | **< $20 USD** | **~$50 USD** * | **~$50 USD** * |
 | **Tezbake Integration** | Full | Partial | Partial |
-| **Avg Signature Time** | ~10ms | ~5ms (**reported**) | ~30ms |
+| **Avg Signature Time** | ~10ms | ~5ms | ~30ms |
 | **Security** | 🔒 **High** (Custom Wire Proto) | 🔒 **High** (Custom Image) | 🛡️ Medium |
 | **Power Loss Safe** | ✅ **Yes** | ✅ **Yes** | ⚠️ No |
 | **Boot Time** | ⏱️ 15s | 🚀 **5s** | ❓ Unknown |
