@@ -2,6 +2,27 @@
 
 `tezsign` is a secure, air-gapped signing solution for Tezos consensus operations. It uses a dedicated hardware gadget (like a Raspberry Pi) connected via USB to a host machine, ensuring your keys remain isolated.
 
+## Comparison With Other Available Solutions
+| Feature | **TezSign** | **Russignol** | **BLS Signer** |
+| :--- | :--- | :--- | :--- |
+| **Supported Devices** | 🥧 RPi Zero 2W, RPi4, Radxa Zero 3 | 🥧 RPi Zero 2W w/ PaperInk | 🥧 RPi Zero 2W w/ PaperInk |
+| **Hardware Start Cost** | **< $20 USD** | **~$50 USD** * | **~$50 USD** * |
+| **Avg Signature Time** | ~10ms | ~5ms (**reported**) | ~30ms |
+| **Security** | 🔒 **High** (Custom Wire Proto) | 🔒 **High** (Custom Image) | 🛡️ Medium |
+| **Power Loss Safe** | ✅ **Yes** | ⚠️ No | ⚠️ No |
+| **Boot Time** | ⏱️ 15s | 🚀 **5s** | ❓ Unknown |
+| **Multi-Device Support**| ✅ **Yes** | ❌ No | ❌ No |
+| **Multi-Baker Support** | ✅ **Yes** | ❌ No | ❌ No |
+| **Companion App** | Required | Optional | No |
+| **Physical Pinlock** | ❌ No (App-based) | 👆 Yes (Touch Screen) | 👆 Yes (Touch Screen) |
+| **Auto Unlock on Boot**| ✅ **Yes** (Optional) | ❌ No | ❌ No |
+| **Installation Size** | 💾 ~200MB | 📦 7MB | 🐘 1.95GB |
+| **License** | 📜 SSPL | ⛔ UNLICENSED | 📜 MIT |
+
+> **\*** * Shipping & taxes may apply.
+>
+> **Note on Power Loss:** "Yes" indicates the device is hardened against corruption if power is suddenly cut.
+
 ## 🚀 Get Started
 
 ### What you need:
