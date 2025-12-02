@@ -31,20 +31,27 @@ const (
 func main() {
 	logger, _ := logging.NewFromEnv()
 
+	args := os.Args[1:]
+	if hasHelpFlag(args) {
+		printUsage()
+		return
+	}
+
 	var source string
 	var appBinary string
 	var sourceProvided bool
-	if len(os.Args) >= 2 {
-		source = os.Args[1]
+	if len(args) >= 1 {
+		source = args[0]
 		sourceProvided = true
+		appBinary = source // allow supplying only the source while still using interactive flow
 	}
 
 	// Keep the previous non-interactive flow when destination is provided explicitly.
-	if sourceProvided && len(os.Args) >= 3 {
-		destination := os.Args[2]
+	if sourceProvided && len(args) >= 2 {
+		destination := args[1]
 		kind := UpdateKindFull
-		if len(os.Args) >= 4 {
-			kind = UpdateKind(os.Args[3])
+		if len(args) >= 3 {
+			kind = UpdateKind(args[2])
 			switch kind {
 			case UpdateKindFull, UpdateKindAppOnly:
 			default:
@@ -353,4 +360,32 @@ func downloadWithProgress(url string) (string, func(), error) {
 	}
 
 	return tmpFile.Name(), cleanup, nil
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "-help" || arg == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+func printUsage() {
+	bin := filepath.Base(os.Args[0])
+	fmt.Printf(`TezSign Updater
+
+Usage:
+  %[1]s
+      Interactive mode: pick a device and download the latest release automatically.
+  %[1]s <source>
+      Interactive mode using a local image/binary; destination is still selected interactively.
+  %[1]s <source> <destination> [full|app]
+      Non-interactive update using local files (default kind: full).
+  %[1]s <app_binary> <destination> app
+      App-only update with a prebuilt gadget binary.
+
+Options:
+  -h, --help    Show this help message.
+`, bin)
 }
