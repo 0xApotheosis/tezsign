@@ -3,13 +3,20 @@ package main
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/tez-capital/tezsign/app/gadget/common"
+	"github.com/tez-capital/tezsign/logging"
 )
+
+const ep0ReadRetryDelay = time.Second
 
 func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 	buf := make([]byte, evSize)
@@ -20,8 +27,9 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 			if errors.Is(err, io.EOF) {
 				return
 			}
-			l.Error("ep0 read events", "err", err)
-			return
+			l.Warn("ep0 read events failed; retrying", "err", err, "delay", ep0ReadRetryDelay)
+			time.Sleep(ep0ReadRetryDelay)
+			continue
 		}
 
 		if n < evSize {
@@ -69,7 +77,24 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 }
 
 func main() {
-	l := slog.Default()
+	logCfg := logging.NewConfigFromEnv()
+	if logCfg.File == "" {
+		dataStore := strings.TrimSpace(os.Getenv("DATA_STORE"))
+		if dataStore != "" {
+			if err := os.MkdirAll(dataStore, 0o700); err != nil {
+				panic(fmt.Errorf("could not create DATA_STORE=%q: %w", dataStore, err))
+			}
+			logCfg.File = filepath.Join(dataStore, "registrar.log")
+		} else {
+			logCfg.File = logging.DefaultFileInExecDir("registrar.log")
+		}
+	}
+	if err := logging.EnsureDir(logCfg.File); err != nil {
+		panic("Could not create dir for path of configuration file!")
+	}
+
+	l, _ := logging.New(logCfg)
+	l.Debug("logging to file", "path", logging.CurrentFile())
 
 	ep0, err := os.OpenFile(Ep0Path, os.O_RDWR, 0)
 	if err != nil {
