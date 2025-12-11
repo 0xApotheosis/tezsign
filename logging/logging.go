@@ -3,6 +3,7 @@ package logging
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -169,13 +170,18 @@ func New(cfg Config) (*slog.Logger, io.Writer) {
 
 	var logWriter io.Writer
 	if cfg.File != "" {
-		logWriter, _ = NewSimpleLogResetWriter(cfg.File, cfg.MaxSizeMB*1024*1024)
-		setCurrentFile(cfg.File)
-		switch cfg.Format {
-		case "json":
-			handlers = append(handlers, slog.NewJSONHandler(logWriter, &slog.HandlerOptions{Level: cfg.Level}))
-		default: // text
-			handlers = append(handlers, slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: cfg.Level}))
+		lw, err := NewSimpleLogResetWriter(cfg.File, cfg.MaxSizeMB*1024*1024)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "logging: file %q disabled: %v\n", cfg.File, err)
+		} else {
+			logWriter = lw
+			setCurrentFile(cfg.File)
+			switch cfg.Format {
+			case "json":
+				handlers = append(handlers, slog.NewJSONHandler(logWriter, &slog.HandlerOptions{Level: cfg.Level}))
+			default: // text
+				handlers = append(handlers, slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: cfg.Level}))
+			}
 		}
 	}
 

@@ -7,7 +7,8 @@ Requires=setup-gadget.service
 Type=simple
 User=registrar
 Group=registrar
-Environment="BROKER_LOG=debug"
+Environment="DATA_STORE=/data/tezsign"
+Environment="LOG_LEVEL=debug"
 ExecStart=/usr/local/bin/ffs_registrar
 RemainAfterExit=yes
 Restart=always
