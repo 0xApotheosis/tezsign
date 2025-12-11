@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -47,7 +48,8 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 		// [65 90 0 0 0 0 8 0 | 4 | 0 0 0]
 		// ^____ request ____^
 		req := parseCtrlReq(buf[0:8])
-		l.Info("parsed", "type", req.bmRequestType, "request", req.bRequest, "length", req.wLength)
+		l.Log(context.Background(), -100, "parsed", "type", req.bmRequestType, "request", req.bRequest, "length", req.wLength)
+
 		// Handle our vendor IN request
 		if req.bmRequestType == bmReqTypeVendorIn && req.bRequest == vendorReqReady {
 			// Prepare reply
@@ -89,27 +91,29 @@ func main() {
 			logCfg.File = logging.DefaultFileInExecDir("registrar.log")
 		}
 	}
+
 	if err := logging.EnsureDir(logCfg.File); err != nil {
 		panic("Could not create dir for path of configuration file!")
 	}
 
 	l, _ := logging.New(logCfg)
+
 	l.Debug("logging to file", "path", logging.CurrentFile())
 
 	ep0, err := os.OpenFile(Ep0Path, os.O_RDWR, 0)
 	if err != nil {
-		slog.Error("failed to open ep0", "error", err.Error(), "function", FunctionName, "ffs_root", common.FfsInstanceRoot)
+		l.Error("failed to open ep0", "error", err.Error(), "function", FunctionName, "ffs_root", common.FfsInstanceRoot)
 		os.Exit(1)
 	}
 	defer ep0.Close()
 
 	if _, err := ep0.Write(deviceDescriptors); err != nil {
-		slog.Error("failed to write device descriptors", "error", err.Error())
+		l.Error("failed to write device descriptors", "error", err.Error())
 		os.Exit(1)
 	}
 
 	if _, err := ep0.Write(deviceStrings); err != nil {
-		slog.Error("failed to write device strings", "error", err.Error())
+		l.Error("failed to write device strings", "error", err.Error())
 		os.Exit(1)
 	}
 
