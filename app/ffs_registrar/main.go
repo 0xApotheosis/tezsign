@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -28,13 +27,13 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 			if errors.Is(err, io.EOF) {
 				return
 			}
-			l.Warn("ep0 read events failed; retrying", "err", err, "delay", ep0ReadRetryDelay)
+			logging.Fatal(l, "ep0 read events failed; retrying", "err", err, "delay", ep0ReadRetryDelay)
 			time.Sleep(ep0ReadRetryDelay)
 			continue
 		}
 
 		if n < evSize {
-			l.Warn("ep0 read event too short", "n", n)
+			logging.Fatal(l, "ep0 read event too short", "n", n)
 			continue
 		}
 
@@ -48,7 +47,7 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 		// [65 90 0 0 0 0 8 0 | 4 | 0 0 0]
 		// ^____ request ____^
 		req := parseCtrlReq(buf[0:8])
-		l.Log(context.Background(), -100, "parsed", "type", req.bmRequestType, "request", req.bRequest, "length", req.wLength)
+		logging.All(l, "parsed", "type", req.bmRequestType, "request", req.bRequest, "length", req.wLength)
 
 		// Handle our vendor IN request
 		if req.bmRequestType == bmReqTypeVendorIn && req.bRequest == vendorReqReady {
@@ -65,15 +64,15 @@ func drainEP0Events(ep0 *os.File, ready *atomic.Uint32, l *slog.Logger) {
 			}
 			// Write data stage
 			if _, err := ep0.Write(reply[:wlen]); err != nil {
-				l.Error("ep0 write vendor reply", "err", err)
+				logging.Fatal(l, "ep0 write vendor reply", "err", err)
 			}
 			continue
 		}
-		l.Warn("Unhandled SETUP request, STALLING", "type", req.bmRequestType, "req", req.bRequest)
+		logging.Fatal(l, "Unhandled SETUP request, STALLING", "type", req.bmRequestType, "req", req.bRequest)
 		// A 0-byte write on an unhandled request is the
 		// userspace way to signal a STALL to the kernel.
 		if _, err := ep0.Write(nil); err != nil {
-			l.Error("ep0 write ZLP/STALL failed", "err", err)
+			logging.Fatal(l, "ep0 write ZLP/STALL failed", "err", err)
 		}
 	}
 }
