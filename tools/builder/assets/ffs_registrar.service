@@ -3,6 +3,7 @@ Description=Registers FFS gadget descriptors (writes to ep0)
 After=setup-gadget.service
 Requires=setup-gadget.service
 StartLimitIntervalSec=0
+OnFailure=ffs_registrar-dump.service
 
 [Service]
 Type=simple
