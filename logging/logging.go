@@ -3,6 +3,7 @@ package logging
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -275,9 +276,18 @@ func (h fatalFileHandler) Handle(ctx context.Context, r slog.Record) error {
 		return err
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o660)
+	if err != nil && errors.Is(err, os.ErrPermission) {
+		if rmErr := os.Remove(path); rmErr == nil {
+			f, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o660)
+		}
+	}
 	if err != nil {
 		return err
+	}
+	if f != nil {
+		_ = f.Chmod(0o660)
+		_ = os.Chmod(path, 0o660)
 	}
 	defer f.Close()
 
