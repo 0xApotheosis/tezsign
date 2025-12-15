@@ -1,7 +1,8 @@
 name: "Build Armbian (Parallel)"
 
 on:
-    push:
+  push:
+  pull_request:
 
 jobs:
     build-armbian:
