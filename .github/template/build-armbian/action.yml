@@ -63,11 +63,11 @@ runs:
         clean: false
         path: os
 
-    - name: "Checkout Armbian build framework"
+    - name: "Checkout Armbian build framework (EvilOlaf fork)"
       uses: actions/checkout@v5
       with:
-        repository: armbian/build
-        ref: main
+        repository: EvilOlaf/build
+        ref: rpi4b-kernel-config
         clean: false
         path: build
 
