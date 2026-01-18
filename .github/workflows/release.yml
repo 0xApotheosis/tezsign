@@ -7,6 +7,8 @@ on:
 jobs:
     build-armbian:
         runs-on: ubuntu-24.04-arm
+        permissions:
+          contents: write
         strategy:
             fail-fast: false
             matrix:
@@ -15,10 +17,12 @@ jobs:
                       artifact_id: "raspberry_pi_dev"
                       armbian_release: "trixie"
                       tezsign_flavour: "dev"
+                      armbian_kernel_branch: "legacy"
                     - board: "rpi4b"
                       artifact_id: "raspberry_pi"
                       armbian_release: "trixie"
                       tezsign_flavour: "prod"
+                      armbian_kernel_branch: "legacy"
                     - board: "radxa-zero3"
                       artifact_id: "radxa_zero3_dev"
                       armbian_release: "trixie"
